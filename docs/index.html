@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Scraper Queries</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --border: #d8dce2;
+    --text: #1b1f24;
+    --muted: #616b76;
+    --accent: #2b6cb0;
+    --accent-text: #ffffff;
+    --danger: #b42318;
+    --ok: #1a7f4b;
+    --input-bg: #ffffff;
+    --radius: 8px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16191d;
+      --panel: #1e2227;
+      --border: #333a42;
+      --text: #e6e9ed;
+      --muted: #98a2ad;
+      --accent: #5596d8;
+      --accent-text: #0d1116;
+      --danger: #f08b82;
+      --ok: #5cc08b;
+      --input-bg: #14171b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16191d;
+    --panel: #1e2227;
+    --border: #333a42;
+    --text: #e6e9ed;
+    --muted: #98a2ad;
+    --accent: #5596d8;
+    --accent-text: #0d1116;
+    --danger: #f08b82;
+    --ok: #5cc08b;
+    --input-bg: #14171b;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 64px;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
+
+  fieldset {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+    padding: 16px;
+    margin: 0 0 20px;
+  }
+  legend { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 0 6px; }
+
+  label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+  input[type=text], input[type=password] {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--input-bg);
+    color: var(--text);
+    font: inherit;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1 1 180px; min-width: 0; }
+  .field { margin-bottom: 12px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .hint a { color: var(--accent); }
+
+  button {
+    font: inherit;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button.link { border: none; background: none; color: var(--danger); padding: 4px; font-weight: 500; font-size: 13px; }
+  .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+  .query {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  .query-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .query-num { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .invalid { border-color: var(--danger); }
+  .err { color: var(--danger); font-size: 12px; margin-top: 6px; }
+
+  #status { margin: 16px 0; font-size: 14px; min-height: 20px; }
+  #status.ok { color: var(--ok); }
+  #status.bad { color: var(--danger); }
+  #status.busy { color: var(--muted); }
+
+  details { margin-top: 20px; }
+  summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  pre {
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    overflow-x: auto;
+    font-size: 12px;
+    margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Job Scraper Queries</h1>
+  <p class="sub">Edits commit <code>queries.json</code> straight to your repo. The next hourly Actions run picks them up.</p>
+
+  <fieldset>
+    <legend>Connection</legend>
+    <div class="row">
+      <div class="field">
+        <label for="owner">Owner</label>
+        <input type="text" id="owner" placeholder="ervindobri" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="repo">Repository</label>
+        <input type="text" id="repo" placeholder="job_scraper_bot" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="branch">Branch</label>
+        <input type="text" id="branch" placeholder="main" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <div class="field">
+      <label for="token">Fine-grained personal access token</label>
+      <input type="password" id="token" placeholder="github_pat_..." autocomplete="off" spellcheck="false">
+      <p class="hint">
+        Needs <strong>Contents: read and write</strong> on this one repository only.
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create one</a>.
+        Kept in this browser's localStorage and sent only to api.github.com &mdash; never committed.
+      </p>
+    </div>
+    <div class="actions">
+      <button class="primary" id="load">Load queries</button>
+      <button id="forget">Forget token</button>
+    </div>
+  </fieldset>
+
+  <div id="status"></div>
+
+  <section id="editor" hidden>
+    <fieldset>
+      <legend>Queries</legend>
+      <div id="queries"></div>
+      <div class="actions" style="margin-top:12px">
+        <button id="add">+ Add query</button>
+      </div>
+    </fieldset>
+
+    <div class="actions">
+      <button class="primary" id="save">Commit to GitHub</button>
+      <button id="reload">Discard changes</button>
+    </div>
+
+    <details>
+      <summary>Preview queries.json</summary>
+      <pre id="preview"></pre>
+    </details>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  const API = "https://api.github.com";
+  const PATH = "queries.json";
+  const LS_KEY = "job-scraper-config";
+
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    owner: $("owner"), repo: $("repo"), branch: $("branch"), token: $("token"),
+    load: $("load"), forget: $("forget"), add: $("add"), save: $("save"),
+    reload: $("reload"), editor: $("editor"), queries: $("queries"),
+    status: $("status"), preview: $("preview"),
+  };
+
+  let model = [];   // [{keywords, location, exclude}]
+  let sha = null;   // blob sha of the loaded queries.json, needed to commit safely
+  let existed = false;
+
+  // --- persistence (best-effort; private windows may block storage) -----------
+  function saveConfig() {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        owner: els.owner.value.trim(),
+        repo: els.repo.value.trim(),
+        branch: els.branch.value.trim(),
+        token: els.token.value.trim(),
+      }));
+    } catch (e) { /* storage unavailable; the form still works this session */ }
+  }
+  function loadConfig() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch (e) { saved = {}; }
+    // Infer owner/repo from the Pages URL (owner.github.io/repo) when nothing is stored.
+    const host = location.hostname.match(/^([^.]+)\.github\.io$/);
+    const seg = location.pathname.split("/").filter(Boolean)[0];
+    els.owner.value = saved.owner || (host ? host[1] : "ervindobri");
+    els.repo.value = saved.repo || (host && seg ? seg : "job_scraper_bot");
+    els.branch.value = saved.branch || "main";
+    els.token.value = saved.token || "";
+  }
+
+  // --- base64 that survives non-ASCII (e.g. "A Coruña", "Malmö") -------------
+  function toBase64(str) {
+    const bytes = new TextEncoder().encode(str);
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin);
+  }
+  function fromBase64(b64) {
+    const bin = atob(String(b64).replace(/\s/g, ""));  // GitHub wraps base64 in newlines
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  }
+
+  function setStatus(msg, kind) {
+    els.status.textContent = msg;
+    els.status.className = kind || "";
+  }
+
+  function busy(on) {
+    [els.load, els.save, els.add, els.reload].forEach((b) => { b.disabled = on; });
+  }
+
+  // --- GitHub REST -----------------------------------------------------------
+  function ctx() {
+    const c = {
+      owner: els.owner.value.trim(),
+      repo: els.repo.value.trim(),
+      branch: els.branch.value.trim() || "main",
+      token: els.token.value.trim(),
+    };
+    if (!c.owner || !c.repo) throw new Error("Owner and repository are required.");
+    if (!c.token) throw new Error("A personal access token is required.");
+    return c;
+  }
+
+  async function ghFetch(url, init) {
+    const c = ctx();
+    const res = await fetch(url, Object.assign({}, init, {
+      headers: Object.assign({
+        "Authorization": "Bearer " + c.token,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      }, (init && init.headers) || {}),
+    }));
+    return res;
+  }
+
+  function explain(res, body) {
+    const msg = (body && body.message) || res.statusText;
+    if (res.status === 401) return "401 — token rejected. It may be expired or mistyped.";
+    if (res.status === 403) return "403 — token lacks permission. Grant Contents: read and write on this repo.";
+    if (res.status === 404) return "404 — repo, branch or path not found. Check owner/repo, and that the token grants access to this repository.";
+    if (res.status === 409) return "409 — the file changed on GitHub since you loaded it. Reload and reapply your edits.";
+    if (res.status === 422) return "422 — " + msg;
+    return res.status + " — " + msg;
+  }
+
+  async function load() {
+    busy(true);
+    setStatus("Loading…", "busy");
+    try {
+      const c = ctx();
+      saveConfig();
+      const url = `${API}/repos/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.repo)}` +
+                  `/contents/${PATH}?ref=${encodeURIComponent(c.branch)}`;
+      const res = await ghFetch(url, { cache: "no-store" });
+
+      if (res.status === 404) {
+        // queries.json not in the repo yet — start from an empty list.
+        sha = null; existed = false; model = [];
+        render();
+        els.editor.hidden = false;
+        setStatus("No queries.json in the repo yet — add queries and commit to create it.", "");
+        return;
+      }
+      const body = await res.json().catch(() => null);
+      if (!res.ok) { setStatus(explain(res, body), "bad"); return; }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(fromBase64(body.content));
+      } catch (e) {
+        setStatus("queries.json in the repo is not valid JSON (" + e.message +
+                  "). Fix it here and commit to overwrite it.", "bad");
+        sha = body.sha; existed = true; model = []; render();
+        els.editor.hidden = false;
+        return;
+      }
+      if (!Array.isArray(parsed)) {
+        setStatus("queries.json must contain a JSON array. Rebuild it here and commit.", "bad");
+        sha = body.sha; existed = true; model = []; render();
+        els.editor.hidden = false;
+        return;
+      }
+
+      sha = body.sha; existed = true;
+      model = parsed.map((q) => ({
+        keywords: typeof q.keywords === "string" ? q.keywords : "",
+        location: typeof q.location === "string" ? q.location : "",
+        exclude: Array.isArray(q.exclude) ? q.exclude.filter((w) => typeof w === "string") : [],
+      }));
+      render();
+      els.editor.hidden = false;
+      setStatus(`Loaded ${model.length} quer${model.length === 1 ? "y" : "ies"}.`, "ok");
+    } catch (e) {
+      setStatus(e.message, "bad");
+    } finally {
+      busy(false);
+    }
+  }
+
+  async function save() {
+    const problems = validate();
+    if (problems.length) {
+      setStatus(problems[0], "bad");
+      render();
+      return;
+    }
+    busy(true);
+    setStatus("Committing…", "busy");
+    try {
+      const c = ctx();
+      saveConfig();
+      // Trailing newline keeps the file POSIX-clean and diffs tidy.
+      const content = JSON.stringify(serialize(), null, 2) + "\n";
+      const payload = {
+        message: existed ? "Update job queries" : "Add job queries",
+        content: toBase64(content),
+        branch: c.branch,
+      };
+      if (sha) payload.sha = sha;
+
+      const url = `${API}/repos/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.repo)}/contents/${PATH}`;
+      const res = await ghFetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) { setStatus(explain(res, body), "bad"); return; }
+
+      sha = body.content && body.content.sha;   // adopt the new sha so you can commit again
+      existed = true;
+      const short = body.commit && body.commit.sha ? body.commit.sha.slice(0, 7) : "";
+      setStatus(`Committed ${short}. The next scheduled run will use these queries.`, "ok");
+    } catch (e) {
+      setStatus(e.message, "bad");
+    } finally {
+      busy(false);
+    }
+  }
+
+  // --- model <-> form --------------------------------------------------------
+  function serialize() {
+    return model.map((q) => {
+      const out = { keywords: q.keywords.trim() };
+      if (q.location.trim()) out.location = q.location.trim();
+      const ex = q.exclude.map((w) => w.trim()).filter(Boolean);
+      if (ex.length) out.exclude = ex;
+      return out;
+    });
+  }
+
+  function validate() {
+    const problems = [];
+    if (!model.length) problems.push("Add at least one query — an empty file makes the scraper exit.");
+    model.forEach((q, i) => {
+      if (!q.keywords.trim()) problems.push(`Query ${i + 1}: keywords cannot be empty.`);
+    });
+    return problems;
+  }
+
+  function render() {
+    els.queries.innerHTML = "";
+    model.forEach((q, i) => {
+      const card = document.createElement("div");
+      card.className = "query" + (q.keywords.trim() ? "" : " invalid");
+
+      const head = document.createElement("div");
+      head.className = "query-head";
+      const num = document.createElement("span");
+      num.className = "query-num";
+      num.textContent = "Query " + (i + 1);
+      const del = document.createElement("button");
+      del.className = "link";
+      del.textContent = "Remove";
+      del.onclick = () => { model.splice(i, 1); render(); };
+      head.append(num, del);
+      card.append(head);
+
+      const row = document.createElement("div");
+      row.className = "row";
+      row.append(
+        field("Keywords", q.keywords, "flutter developer", (v) => { q.keywords = v; touch(card, q); }),
+        field("Location", q.location, "Budapest", (v) => { q.location = v; touch(card, q); }),
+      );
+      card.append(row);
+
+      card.append(field(
+        "Exclude titles containing (comma separated)",
+        q.exclude.join(", "), "lead, intern",
+        (v) => {
+          q.exclude = v.split(",").map((s) => s.trim()).filter(Boolean);
+          touch(card, q);
+        },
+      ));
+
+      if (!q.keywords.trim()) {
+        const err = document.createElement("div");
+        err.className = "err";
+        err.textContent = "Keywords are required.";
+        card.append(err);
+      }
+      els.queries.append(card);
+    });
+    els.preview.textContent = JSON.stringify(serialize(), null, 2) + "\n";
+  }
+
+  function touch(card, q) {
+    card.classList.toggle("invalid", !q.keywords.trim());
+    els.preview.textContent = JSON.stringify(serialize(), null, 2) + "\n";
+  }
+
+  function field(labelText, value, placeholder, onInput) {
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+    const id = "f" + Math.random().toString(36).slice(2, 9);
+    const label = document.createElement("label");
+    label.textContent = labelText;
+    label.setAttribute("for", id);
+    const input = document.createElement("input");
+    input.type = "text";
+    input.id = id;
+    input.value = value;
+    input.placeholder = placeholder;
+    input.spellcheck = false;
+    input.addEventListener("input", () => onInput(input.value));
+    wrap.append(label, input);
+    return wrap;
+  }
+
+  // --- wiring ---------------------------------------------------------------
+  els.load.onclick = load;
+  els.reload.onclick = load;
+  els.save.onclick = save;
+  els.add.onclick = () => {
+    model.push({ keywords: "", location: "", exclude: [] });
+    render();
+  };
+  els.forget.onclick = () => {
+    els.token.value = "";
+    try { localStorage.removeItem(LS_KEY); } catch (e) { /* ignore */ }
+    setStatus("Token cleared from this browser.", "ok");
+  };
+  ["owner", "repo", "branch", "token"].forEach((k) => {
+    els[k].addEventListener("change", saveConfig);
+  });
+
+  loadConfig();
+  if (els.owner.value && els.repo.value && els.token.value) load();
+})();
+</script>
+</body>
+</html>
