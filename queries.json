@@ -1,37 +1,56 @@
 [
   {
     "keywords": "flutter developer",
-    "location": "Budapest",
-    "exclude": ["lead"]
+    "location": "Hungary",
+    "exclude": [
+      "lead"
+    ]
   },
   {
     "keywords": "flutter developer",
     "location": "Netherlands",
-    "exclude": ["lead"]
+    "exclude": [
+      "lead"
+    ]
   },
   {
     "keywords": "flutter engineer",
     "location": "Spain",
-    "exclude": ["lead", "staff"]
+    "exclude": [
+      "lead",
+      "staff"
+    ]
   },
   {
     "keywords": "flutter mobile remote",
-    "location": "Europe",
-    "exclude": ["lead", "staff"]
+    "location": "Europe, EU",
+    "exclude": [
+      "lead",
+      "staff"
+    ]
   },
   {
     "keywords": "senior mobile developer",
     "location": "Europe",
-    "exclude": ["lead", "staff"]
+    "exclude": [
+      "lead",
+      "staff"
+    ]
   },
   {
     "keywords": "senior mobile engineer",
     "location": "Europe",
-    "exclude": ["lead", "staff"]
+    "exclude": [
+      "lead",
+      "staff"
+    ]
   },
   {
     "keywords": "senior flutter developer",
     "location": "Europe",
-    "exclude": ["lead", "staff"]
+    "exclude": [
+      "lead",
+      "staff"
+    ]
   }
 ]
