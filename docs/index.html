@@ -280,11 +280,12 @@
 
   function explain(res, body) {
     const msg = (body && body.message) || res.statusText;
-    if (res.status === 401) return "401 — token rejected. It may be expired or mistyped.";
-    if (res.status === 403) return "403 — token lacks permission. Grant Contents: read and write on this repo.";
-    if (res.status === 404) return "404 — repo, branch or path not found. Check owner/repo, and that the token grants access to this repository.";
-    if (res.status === 409) return "409 — the file changed on GitHub since you loaded it. Reload and reapply your edits.";
-    if (res.status === 422) return "422 — " + msg;
+    // GitHub's own wording is often more specific than ours, so always append it.
+    const detail = msg ? ` (GitHub: ${msg})` : "";
+    if (res.status === 401) return "401 — token rejected. It may be expired or mistyped." + detail;
+    if (res.status === 403) return "403 — token lacks permission. Set Contents to 'Read and write' on this repo, not 'Read-only'." + detail;
+    if (res.status === 404) return "404 — repo, branch or path not found. Check owner/repo, and that the token grants access to this repository." + detail;
+    if (res.status === 409) return "409 — the file changed on GitHub since you loaded it. Reload and reapply your edits." + detail;
     return res.status + " — " + msg;
   }
 

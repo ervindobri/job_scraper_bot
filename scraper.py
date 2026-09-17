@@ -19,8 +19,9 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 }
-TIME_WINDOW = "r3600"  # last 1 hour (covers GitHub cron delays; duplicates are filtered)
-PAGE_SIZE = 25  # what the guest endpoint actually returns per request
+TIME_WINDOW = "r7200"  # 2h lookback: overlaps the hourly cron so a delayed or skipped
+                       # run self-heals. seen_jobs.json filters the duplicates.
+PAGE_SIZE = 10  # what the guest endpoint actually returns per request, regardless of ask
 MAX_PAGES = 3
 SEEN_TTL_DAYS = 14
 MAX_MESSAGE_CHARS = 4096  # Telegram hard limit

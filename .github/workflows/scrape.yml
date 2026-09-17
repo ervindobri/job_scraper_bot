@@ -2,7 +2,7 @@ name: Job scraper
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "17 * * * *"  # off-peak minute; top of the hour is the most delayed slot
   workflow_dispatch:
 
 permissions:
