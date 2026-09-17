@@ -22,7 +22,9 @@ HEADERS = {
 TIME_WINDOW = "r7200"  # 2h lookback: overlaps the hourly cron so a delayed or skipped
                        # run self-heals. seen_jobs.json filters the duplicates.
 PAGE_SIZE = 10  # what the guest endpoint actually returns per request, regardless of ask
-MAX_PAGES = 3
+MAX_PAGES = 10  # x PAGE_SIZE = up to 100 postings per query
+PAGE_DELAY = 2  # seconds between page requests; LinkedIn 429s if pushed harder
+PAGE_RETRIES = 3
 SEEN_TTL_DAYS = 14
 MAX_MESSAGE_CHARS = 4096  # Telegram hard limit
 CHUNK_BUDGET = 3500  # per message, leaving room for the header
@@ -45,8 +47,52 @@ def load_json(path, default):
         sys.exit(f"{path.name} is not valid JSON: {e}")
 
 
+def fetch_page(params, label):
+    """GET one page of results, retrying transient failures. None means give up."""
+    for attempt in range(1, PAGE_RETRIES + 1):
+        try:
+            r = requests.get(SEARCH_URL, params=params, headers=HEADERS, timeout=30)
+        except requests.RequestException as e:
+            print(f"  request failed ({label}): {e}")
+            return None
+        if r.status_code == 200:
+            return r
+        # 429 is routine when paginating deep; back off rather than truncating.
+        if r.status_code in (429, 500, 502, 503, 504) and attempt < PAGE_RETRIES:
+            wait = int(r.headers.get("Retry-After") or 0) or PAGE_DELAY * 2 ** attempt
+            print(f"  HTTP {r.status_code} ({label}), retrying in {wait}s")
+            time.sleep(wait)
+            continue
+        print(f"  HTTP {r.status_code} ({label}), skipping rest of this query")
+        return None
+    return None
+
+
+def parse_cards(html_text):
+    cards = BeautifulSoup(html_text, "html.parser").select("div.base-card")
+    out = []
+    for card in cards:
+        urn = card.get("data-entity-urn", "")
+        job_id = urn.rsplit(":", 1)[-1]
+        if not job_id:
+            continue
+        title = card.select_one(".base-search-card__title")
+        company = card.select_one(".base-search-card__subtitle")
+        location = card.select_one(".job-search-card__location")
+        out.append({
+            "id": job_id,
+            "title": title.get_text(strip=True) if title else "",
+            "company": company.get_text(strip=True) if company else "",
+            "location": location.get_text(strip=True) if location else "",
+            "url": f"https://www.linkedin.com/jobs/view/{job_id}",
+        })
+    return len(cards), out
+
+
 def fetch_jobs(query):
     jobs = []
+    ids = set()
+    label = f"{query['keywords']!r} @ {query.get('location', '')!r}"
     for page in range(MAX_PAGES):
         params = {
             "keywords": query["keywords"],
@@ -55,33 +101,20 @@ def fetch_jobs(query):
             "start": page * PAGE_SIZE,
             "origin": "SEMANTIC_SEARCH_LANDING_PAGE",
         }
-        try:
-            r = requests.get(SEARCH_URL, params=params, headers=HEADERS, timeout=30)
-        except requests.RequestException as e:
-            print(f"request failed for {query['keywords']!r}: {e}")
+        r = fetch_page(params, f"{label} start={params['start']}")
+        if r is None:
             break
-        if r.status_code != 200:
-            print(f"HTTP {r.status_code} for {query['keywords']!r} @ start={params['start']}")
-            break
-        cards = BeautifulSoup(r.text, "html.parser").select("div.base-card")
-        for card in cards:
-            urn = card.get("data-entity-urn", "")
-            job_id = urn.rsplit(":", 1)[-1]
-            if not job_id:
-                continue
-            title = card.select_one(".base-search-card__title")
-            company = card.select_one(".base-search-card__subtitle")
-            location = card.select_one(".job-search-card__location")
-            jobs.append({
-                "id": job_id,
-                "title": title.get_text(strip=True) if title else "",
-                "company": company.get_text(strip=True) if company else "",
-                "location": location.get_text(strip=True) if location else "",
-                "url": f"https://www.linkedin.com/jobs/view/{job_id}",
-            })
-        if len(cards) < PAGE_SIZE:
+        card_count, parsed = parse_cards(r.text)
+        for job in parsed:
+            if job["id"] not in ids:   # LinkedIn repeats rows near the tail
+                ids.add(job["id"])
+                jobs.append(job)
+        if card_count < PAGE_SIZE:
             break  # last page
-        time.sleep(2)
+        if page == MAX_PAGES - 1:
+            print(f"  note: {label} filled all {MAX_PAGES} pages; more results exist "
+                  f"than MAX_PAGES allows")
+        time.sleep(PAGE_DELAY)
     return jobs
 
 
