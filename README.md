@@ -37,9 +37,32 @@ Each query takes:
 | `location` | no | geographic filter, e.g. `Budapest`, `Spain`, `Europe` |
 | `exclude` | no | skip postings whose **title** contains any of these words |
 
-Do **not** put the location inside `keywords` ("flutter developer in Spain"). LinkedIn matches
-keywords as free text against the posting body, so `in Spain` returns San Jose jobs whose
-description happens to mention Spain. The separate `location` key is a real geo filter.
+### How `location` is applied
+
+`GEO_IDS` in `scraper.py` maps location names to LinkedIn's own location ids:
+
+| location | geoId |
+| --- | --- |
+| Spain | 105646813 |
+| Europe / EU / EMEA | 91000002 |
+| Netherlands | 102890719 |
+| Germany | 101282230 |
+| Hungary | 100288700 |
+
+`geoId` **overrides** the `location` string when both are sent — verified: `location=Spain`
+with a Hungarian geoId returns Hungarian jobs. So the two cases are handled differently:
+
+- **Mapped location** → send `geoId` and append `in <location>` to the keywords. The geoId pins
+  the geography, so the extra keyword only affects relevance. Measured roughly neutral: Hungary
+  28 → 35 results, Netherlands 133 → 131, Europe 150 → 144, and **no** foreign results in any case.
+- **Unmapped location** → send the `location` param and leave the keywords alone. Without a geoId
+  there is no hard geographic filter, and a location folded into the keywords becomes plain free
+  text matched against the posting body: `senior mobile developer in Europe` with no geoId returned
+  9 of 10 results from the United States. The run logs a note when a location has no geoId.
+
+Add entries to `GEO_IDS` to pin more locations; grab the id from the `geoId=` parameter in a
+LinkedIn job-search URL. Keep the list in `docs/index.html` (`GEO_LOCATIONS`) in step, since the
+editor uses it to flag unmapped locations.
 
 Seen-job history is tracked per person, keyed by the secret name, so the same posting reaches
 everyone who searched for it. Removing a person drops their history; re-adding them later starts

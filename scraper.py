@@ -29,6 +29,20 @@ SEEN_TTL_DAYS = 14
 MAX_MESSAGE_CHARS = 4096  # Telegram hard limit
 CHUNK_BUDGET = 3500  # per message, leaving room for the header
 
+# LinkedIn's own location ids. geoId OVERRIDES the location string when both are
+# sent, so an unmapped location must send no geoId at all or it would silently
+# search the wrong place. Keys are compared lowercased.
+GEO_IDS = {
+    "spain": 105646813,
+    "europe": 91000002,
+    "eu": 91000002,
+    "emea": 91000002,
+    "europe, eu": 91000002,
+    "netherlands": 102890719,
+    "germany": 101282230,
+    "hungary": 100288700,
+}
+
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
 
@@ -88,6 +102,34 @@ def parse_cards(html_text):
     return len(cards), out
 
 
+def geo_id_for(location):
+    """LinkedIn geoId for a location name, or None to fall back to the text filter."""
+    return GEO_IDS.get((location or "").strip().lower())
+
+
+def search_params(query):
+    """Keywords + location half of a request, shared by the API call and the public URL.
+
+    geoId overrides the location string, so when we have one it does the geographic
+    filtering and "in <location>" is appended to the keywords instead: measured to
+    return MORE results in the same country (Hungary 28 -> 35) with no leakage,
+    because geoId still pins the geography.
+
+    Without a geoId there is no hard filter, so the location must stay in its own
+    param. Folding it into the keywords then makes it plain free text matched against
+    the posting body, which returns jobs on other continents that merely mention the
+    place.
+    """
+    keywords = query["keywords"].strip()
+    location = query.get("location", "").strip()
+    geo_id = geo_id_for(location)
+    if not location:
+        return {"keywords": keywords}
+    if geo_id is None:
+        return {"keywords": keywords, "location": location}
+    return {"keywords": f"{keywords} in {location}", "geoId": geo_id}
+
+
 def fetch_jobs(query, cache=None):
     """Scrape one query. `cache` memoises across recipients sharing a query."""
     key = (query["keywords"], query.get("location", ""))
@@ -95,14 +137,17 @@ def fetch_jobs(query, cache=None):
         return cache[key]
     jobs = []
     ids = set()
-    label = f"{query['keywords']!r} @ {query.get('location', '')!r}"
+    location = query.get("location", "")
+    label = f"{query['keywords']!r} @ {location!r}"
+    if location and geo_id_for(location) is None:
+        print(f"  note: no geoId mapped for {location!r}; using the text filter, "
+              f"which is looser. Add it to GEO_IDS to pin it down.")
     for page in range(MAX_PAGES):
         params = {
-            "keywords": query["keywords"],
-            "location": query.get("location", ""),
             "f_TPR": TIME_WINDOW,
             "start": page * PAGE_SIZE,
-            "origin": "SEMANTIC_SEARCH_LANDING_PAGE",
+            "origin": "JOB_SEARCH_PAGE_LOCATION_HISTORY",
+            **search_params(query),
         }
         r = fetch_page(params, f"{label} start={params['start']}")
         if r is None:
@@ -140,10 +185,7 @@ def format_job(job):
 
 def search_page_url(query):
     """The LinkedIn search page for this query, so the message links to all results."""
-    params = {"keywords": query["keywords"], "f_TPR": TIME_WINDOW}
-    location = query.get("location", "")
-    if location:
-        params["location"] = location
+    params = {"f_TPR": TIME_WINDOW, **search_params(query)}
     return SEARCH_PAGE_URL + "?" + urlencode(params)
 
 

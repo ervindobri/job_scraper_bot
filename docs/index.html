@@ -201,6 +201,14 @@
     </details>
   </section>
 
+  <datalist id="locations">
+    <option value="Spain"></option>
+    <option value="Netherlands"></option>
+    <option value="Germany"></option>
+    <option value="Hungary"></option>
+    <option value="Europe"></option>
+  </datalist>
+
   <datalist id="slots">
     <option value="TELEGRAM_CHAT_ID"></option>
     <option value="TELEGRAM_CHAT_ID_2"></option>
@@ -224,6 +232,10 @@
     "TELEGRAM_CHAT_ID_4", "TELEGRAM_CHAT_ID_5",
   ];
   const ENV_RE = /^[A-Z][A-Z0-9_]*$/;
+  // Mirrors GEO_IDS in scraper.py; these locations resolve to an exact LinkedIn geoId.
+  const GEO_LOCATIONS = new Set([
+    "spain", "europe", "eu", "emea", "europe, eu", "netherlands", "germany", "hungary",
+  ]);
 
   const $ = (id) => document.getElementById(id);
   const els = {
@@ -492,9 +504,22 @@
         card.classList.toggle("invalid", !v.trim());
         refresh();
       }),
-      field("Location", q.location, "Budapest", (v) => { q.location = v; refresh(); }),
+      field("Location", q.location, "Spain", (v) => {
+        q.location = v;
+        geoNote.hidden = !v.trim() || GEO_LOCATIONS.has(v.trim().toLowerCase());
+        refresh();
+      }, { list: "locations" }),
     );
     card.append(row);
+
+    // Locations without a geoId fall back to LinkedIn's looser text filter.
+    const geoNote = document.createElement("p");
+    geoNote.className = "hint";
+    geoNote.textContent = "No geoId for this location — the scraper falls back to LinkedIn's " +
+      "looser text filter. Listed locations are pinned exactly.";
+    geoNote.hidden = !q.location.trim() || GEO_LOCATIONS.has(q.location.trim().toLowerCase());
+    card.append(geoNote);
+
     card.append(field("Exclude titles containing (comma separated)",
       q.exclude.join(", "), "lead, intern",
       (v) => { q.exclude = v.split(",").map((s) => s.trim()).filter(Boolean); refresh(); }));
