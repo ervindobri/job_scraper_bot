@@ -28,7 +28,14 @@ jobs:
       - run: python scraper.py
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          # Chat slots. Add a person by creating one of these secrets and
+          # picking its name in the queries editor -- no workflow edit needed.
+          # Unset slots arrive as "" and their recipient is skipped.
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID_2: ${{ secrets.TELEGRAM_CHAT_ID_2 }}
+          TELEGRAM_CHAT_ID_3: ${{ secrets.TELEGRAM_CHAT_ID_3 }}
+          TELEGRAM_CHAT_ID_4: ${{ secrets.TELEGRAM_CHAT_ID_4 }}
+          TELEGRAM_CHAT_ID_5: ${{ secrets.TELEGRAM_CHAT_ID_5 }}
 
       - name: Save seen jobs
         if: always()

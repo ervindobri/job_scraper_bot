@@ -10,7 +10,7 @@ import requests
 from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).parent
-QUERIES_FILE = ROOT / "queries.json"
+CONFIG_FILE = ROOT / "config.json"
 SEEN_FILE = ROOT / "seen_jobs.json"
 
 SEARCH_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
@@ -30,7 +30,6 @@ MAX_MESSAGE_CHARS = 4096  # Telegram hard limit
 CHUNK_BUDGET = 3500  # per message, leaving room for the header
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 
 def load_json(path, default):
@@ -89,7 +88,11 @@ def parse_cards(html_text):
     return len(cards), out
 
 
-def fetch_jobs(query):
+def fetch_jobs(query, cache=None):
+    """Scrape one query. `cache` memoises across recipients sharing a query."""
+    key = (query["keywords"], query.get("location", ""))
+    if cache is not None and key in cache:
+        return cache[key]
     jobs = []
     ids = set()
     label = f"{query['keywords']!r} @ {query.get('location', '')!r}"
@@ -115,6 +118,8 @@ def fetch_jobs(query):
             print(f"  note: {label} filled all {MAX_PAGES} pages; more results exist "
                   f"than MAX_PAGES allows")
         time.sleep(PAGE_DELAY)
+    if cache is not None:
+        cache[key] = jobs
     return jobs
 
 
@@ -182,12 +187,12 @@ def build_messages(query, jobs):
     return messages
 
 
-def send_message(text, attempts=3):
-    """Post one message, honouring Telegram's rate-limit backoff."""
+def send_message(text, chat_id, attempts=3):
+    """Post one message to one chat, honouring Telegram's rate-limit backoff."""
     for attempt in range(1, attempts + 1):
         r = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "HTML",
                   "disable_web_page_preview": True},
             timeout=30,
         )
@@ -217,42 +222,109 @@ def new_jobs_for(query, jobs, seen, now):
     return fresh
 
 
+def load_config():
+    """Read config.json into a list of recipients.
+
+    Also accepts the old flat list of queries, which becomes a single recipient
+    reading TELEGRAM_CHAT_ID.
+    """
+    raw = load_json(CONFIG_FILE, None)
+    if raw is None:
+        sys.exit(f"{CONFIG_FILE.name} not found")
+    if isinstance(raw, list):  # legacy queries.json shape
+        raw = {"recipients": [{"name": "default",
+                               "chat_id_env": "TELEGRAM_CHAT_ID",
+                               "queries": raw}]}
+    if not isinstance(raw, dict) or not isinstance(raw.get("recipients"), list):
+        sys.exit(f"{CONFIG_FILE.name} must be an object with a 'recipients' array")
+
+    recipients = []
+    for i, r in enumerate(raw["recipients"], 1):
+        if not isinstance(r, dict):
+            sys.exit(f"recipient {i} in {CONFIG_FILE.name} is not an object")
+        env = (r.get("chat_id_env") or "").strip()
+        queries = r.get("queries") or []
+        name = (r.get("name") or env or f"recipient {i}").strip()
+        if not env:
+            sys.exit(f"recipient {name!r} is missing chat_id_env")
+        if not isinstance(queries, list):
+            sys.exit(f"recipient {name!r}: queries must be an array")
+        clean = [q for q in queries if isinstance(q, dict) and (q.get("keywords") or "").strip()]
+        recipients.append({"name": name, "chat_id_env": env, "queries": clean})
+    if not recipients:
+        sys.exit(f"no recipients configured in {CONFIG_FILE.name}")
+    return recipients
+
+
+def load_seen(recipients, now):
+    """Seen ids bucketed per recipient, so one person's alerts never mask another's.
+
+    Buckets are keyed by chat_id_env (the secret's *name*), never the chat id
+    itself, so this file stays safe to commit to a public repo.
+    """
+    raw = load_json(SEEN_FILE, {})
+    cutoff = SEEN_TTL_DAYS * 86400
+    # Old format was a flat {job_id: timestamp}; adopt it for the first recipient.
+    if raw and all(isinstance(v, (int, float)) for v in raw.values()):
+        raw = {recipients[0]["chat_id_env"]: raw}
+    seen = {}
+    for r in recipients:
+        bucket = raw.get(r["chat_id_env"], {})
+        if not isinstance(bucket, dict):
+            bucket = {}
+        seen[r["chat_id_env"]] = {
+            k: v for k, v in bucket.items()
+            if isinstance(v, (int, float)) and now - v < cutoff
+        }
+    return seen
+
+
 def main():
-    if not BOT_TOKEN or not CHAT_ID:
-        sys.exit("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set")
+    if not BOT_TOKEN:
+        sys.exit("TELEGRAM_BOT_TOKEN must be set")
 
-    queries = load_json(QUERIES_FILE, [])
-    if not queries:
-        sys.exit(f"no queries found in {QUERIES_FILE.name}")
-
-    seen = load_json(SEEN_FILE, {})
+    recipients = load_config()
     now = time.time()
-    seen = {k: v for k, v in seen.items() if now - v < SEEN_TTL_DAYS * 86400}
+    seen = load_seen(recipients, now)
+    cache = {}
+    totals = {"found": 0, "jobs": 0, "messages": 0}
+    delivered = 0
 
-    sent_jobs = 0
-    sent_messages = 0
-    found = 0
     try:
-        for query in queries:
-            jobs = fetch_jobs(query)
-            found += len(jobs)
-            fresh = new_jobs_for(query, jobs, seen, now)
-            print(f"{query['keywords']!r} @ {query.get('location', '')!r}: "
-                  f"{len(jobs)} found, {len(fresh)} new")
-            if not fresh:
+        for r in recipients:
+            chat_id = (os.environ.get(r["chat_id_env"]) or "").strip()
+            if not chat_id:
+                print(f"[{r['name']}] skipped: {r['chat_id_env']} is not set as a secret")
                 continue
-            for text, batch in build_messages(query, fresh):
-                send_message(text)
-                sent_messages += 1
-                # Mark seen only now, so a failed send is retried next run.
-                for job in batch:
-                    seen[job["id"]] = now
-                sent_jobs += len(batch)
+            if not r["queries"]:
+                print(f"[{r['name']}] skipped: no queries configured")
+                continue
+            delivered += 1
+            bucket = seen[r["chat_id_env"]]
+            print(f"[{r['name']}] {len(r['queries'])} queries")
+            for query in r["queries"]:
+                jobs = fetch_jobs(query, cache)
+                totals["found"] += len(jobs)
+                fresh = new_jobs_for(query, jobs, bucket, now)
+                print(f"  {query['keywords']!r} @ {query.get('location', '')!r}: "
+                      f"{len(jobs)} found, {len(fresh)} new")
+                if not fresh:
+                    continue
+                for text, batch in build_messages(query, fresh):
+                    send_message(text, chat_id)
+                    totals["messages"] += 1
+                    # Mark seen only now, so a failed send is retried next run.
+                    for job in batch:
+                        bucket[job["id"]] = now
+                    totals["jobs"] += len(batch)
     finally:
         # Persist even on failure, so a crash mid-run does not resend everything.
-        SEEN_FILE.write_text(json.dumps(seen, indent=0))
-        print(f"Found {found} postings, sent {sent_jobs} new jobs "
-              f"in {sent_messages} messages")
+        SEEN_FILE.write_text(json.dumps(seen, indent=0, sort_keys=True))
+        print(f"Found {totals['found']} postings, sent {totals['jobs']} new jobs "
+              f"in {totals['messages']} messages to {delivered} recipient(s)")
+
+    if not delivered:
+        sys.exit("no recipient could be resolved; check the chat id secrets")
 
 
 if __name__ == "__main__":

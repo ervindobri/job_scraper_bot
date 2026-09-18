@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Job Scraper Queries</title>
+<title>Job Scraper Config</title>
 <style>
   :root {
     --bg: #f6f7f9;
     --panel: #ffffff;
+    --panel-2: #f0f2f5;
     --border: #d8dce2;
     --text: #1b1f24;
     --muted: #616b76;
@@ -22,6 +23,7 @@
     :root:not([data-theme="light"]) {
       --bg: #16191d;
       --panel: #1e2227;
+      --panel-2: #171b1f;
       --border: #333a42;
       --text: #e6e9ed;
       --muted: #98a2ad;
@@ -35,6 +37,7 @@
   :root[data-theme="dark"] {
     --bg: #16191d;
     --panel: #1e2227;
+    --panel-2: #171b1f;
     --border: #333a42;
     --text: #e6e9ed;
     --muted: #98a2ad;
@@ -53,7 +56,7 @@
     color: var(--text);
     font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
-  main { max-width: 720px; margin: 0 auto; }
+  main { max-width: 760px; margin: 0 auto; }
   h1 { font-size: 20px; margin: 0 0 4px; }
   .sub { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
 
@@ -82,6 +85,7 @@
   .field { margin-bottom: 12px; }
   .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
   .hint a { color: var(--accent); }
+  code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
 
   button {
     font: inherit;
@@ -97,19 +101,31 @@
   button:disabled { opacity: .5; cursor: not-allowed; }
   button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   button.link { border: none; background: none; color: var(--danger); padding: 4px; font-weight: 500; font-size: 13px; }
+  button.small { padding: 5px 10px; font-size: 13px; }
   .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
-  .query {
+  .person {
     border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
     border-radius: var(--radius);
     background: var(--panel);
-    padding: 14px;
-    margin-bottom: 12px;
+    padding: 16px;
+    margin-bottom: 18px;
   }
-  .query-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .person-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .person-name { font-size: 15px; font-weight: 700; }
+  .query {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel-2);
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+  .query-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .query-num { font-size: 12px; font-weight: 600; color: var(--muted); }
   .invalid { border-color: var(--danger); }
   .err { color: var(--danger); font-size: 12px; margin-top: 6px; }
+  .empty { color: var(--muted); font-size: 13px; font-style: italic; margin-bottom: 10px; }
 
   #status { margin: 16px 0; font-size: 14px; min-height: 20px; }
   #status.ok { color: var(--ok); }
@@ -131,8 +147,9 @@
 </head>
 <body>
 <main>
-  <h1>Job Scraper Queries</h1>
-  <p class="sub">Edits commit <code>queries.json</code> straight to your repo. The next hourly Actions run picks them up.</p>
+  <h1>Job Scraper Config</h1>
+  <p class="sub">Edits commit <code>config.json</code> to your repo. Each person gets their own
+  queries and their own Telegram chat, all through the same bot.</p>
 
   <fieldset>
     <legend>Connection</legend>
@@ -160,7 +177,7 @@
       </p>
     </div>
     <div class="actions">
-      <button class="primary" id="load">Load queries</button>
+      <button class="primary" id="load">Load config</button>
       <button id="forget">Forget token</button>
     </div>
   </fieldset>
@@ -168,13 +185,10 @@
   <div id="status"></div>
 
   <section id="editor" hidden>
-    <fieldset>
-      <legend>Queries</legend>
-      <div id="queries"></div>
-      <div class="actions" style="margin-top:12px">
-        <button id="add">+ Add query</button>
-      </div>
-    </fieldset>
+    <div id="people"></div>
+    <div class="actions" style="margin-bottom:20px">
+      <button id="addPerson">+ Add person</button>
+    </div>
 
     <div class="actions">
       <button class="primary" id="save">Commit to GitHub</button>
@@ -182,10 +196,18 @@
     </div>
 
     <details>
-      <summary>Preview queries.json</summary>
+      <summary>Preview config.json</summary>
       <pre id="preview"></pre>
     </details>
   </section>
+
+  <datalist id="slots">
+    <option value="TELEGRAM_CHAT_ID"></option>
+    <option value="TELEGRAM_CHAT_ID_2"></option>
+    <option value="TELEGRAM_CHAT_ID_3"></option>
+    <option value="TELEGRAM_CHAT_ID_4"></option>
+    <option value="TELEGRAM_CHAT_ID_5"></option>
+  </datalist>
 </main>
 
 <script>
@@ -193,36 +215,40 @@
   "use strict";
 
   const API = "https://api.github.com";
-  const PATH = "queries.json";
+  const PATH = "config.json";
   const LS_KEY = "job-scraper-config";
+  // Slots the workflow already forwards. Using one of these needs only a new
+  // repo secret; anything else also needs a line added to scrape.yml.
+  const KNOWN_SLOTS = [
+    "TELEGRAM_CHAT_ID", "TELEGRAM_CHAT_ID_2", "TELEGRAM_CHAT_ID_3",
+    "TELEGRAM_CHAT_ID_4", "TELEGRAM_CHAT_ID_5",
+  ];
+  const ENV_RE = /^[A-Z][A-Z0-9_]*$/;
 
   const $ = (id) => document.getElementById(id);
   const els = {
     owner: $("owner"), repo: $("repo"), branch: $("branch"), token: $("token"),
-    load: $("load"), forget: $("forget"), add: $("add"), save: $("save"),
-    reload: $("reload"), editor: $("editor"), queries: $("queries"),
+    load: $("load"), forget: $("forget"), addPerson: $("addPerson"), save: $("save"),
+    reload: $("reload"), editor: $("editor"), people: $("people"),
     status: $("status"), preview: $("preview"),
   };
 
-  let model = [];   // [{keywords, location, exclude}]
-  let sha = null;   // blob sha of the loaded queries.json, needed to commit safely
+  let model = [];   // [{name, chat_id_env, queries:[{keywords,location,exclude}]}]
+  let sha = null;
   let existed = false;
 
-  // --- persistence (best-effort; private windows may block storage) -----------
+  // --- persistence (best-effort; private windows may block storage) ---------
   function saveConfig() {
     try {
       localStorage.setItem(LS_KEY, JSON.stringify({
-        owner: els.owner.value.trim(),
-        repo: els.repo.value.trim(),
-        branch: els.branch.value.trim(),
-        token: els.token.value.trim(),
+        owner: els.owner.value.trim(), repo: els.repo.value.trim(),
+        branch: els.branch.value.trim(), token: els.token.value.trim(),
       }));
     } catch (e) { /* storage unavailable; the form still works this session */ }
   }
   function loadConfig() {
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch (e) { saved = {}; }
-    // Infer owner/repo from the Pages URL (owner.github.io/repo) when nothing is stored.
     const host = location.hostname.match(/^([^.]+)\.github\.io$/);
     const seg = location.pathname.split("/").filter(Boolean)[0];
     els.owner.value = saved.owner || (host ? host[1] : "ervindobri");
@@ -231,7 +257,7 @@
     els.token.value = saved.token || "";
   }
 
-  // --- base64 that survives non-ASCII (e.g. "A Coruña", "Malmö") -------------
+  // --- base64 that survives non-ASCII (e.g. "A Coruña", "Malmö") -----------
   function toBase64(str) {
     const bytes = new TextEncoder().encode(str);
     let bin = "";
@@ -240,26 +266,18 @@
   }
   function fromBase64(b64) {
     const bin = atob(String(b64).replace(/\s/g, ""));  // GitHub wraps base64 in newlines
-    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
+    return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
   }
 
-  function setStatus(msg, kind) {
-    els.status.textContent = msg;
-    els.status.className = kind || "";
-  }
+  const setStatus = (msg, kind) => { els.status.textContent = msg; els.status.className = kind || ""; };
+  const busy = (on) => [els.load, els.save, els.addPerson, els.reload]
+    .forEach((b) => { b.disabled = on; });
 
-  function busy(on) {
-    [els.load, els.save, els.add, els.reload].forEach((b) => { b.disabled = on; });
-  }
-
-  // --- GitHub REST -----------------------------------------------------------
+  // --- GitHub REST ---------------------------------------------------------
   function ctx() {
     const c = {
-      owner: els.owner.value.trim(),
-      repo: els.repo.value.trim(),
-      branch: els.branch.value.trim() || "main",
-      token: els.token.value.trim(),
+      owner: els.owner.value.trim(), repo: els.repo.value.trim(),
+      branch: els.branch.value.trim() || "main", token: els.token.value.trim(),
     };
     if (!c.owner || !c.repo) throw new Error("Owner and repository are required.");
     if (!c.token) throw new Error("A personal access token is required.");
@@ -268,25 +286,40 @@
 
   async function ghFetch(url, init) {
     const c = ctx();
-    const res = await fetch(url, Object.assign({}, init, {
+    return fetch(url, Object.assign({}, init, {
       headers: Object.assign({
         "Authorization": "Bearer " + c.token,
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
       }, (init && init.headers) || {}),
     }));
-    return res;
   }
 
   function explain(res, body) {
     const msg = (body && body.message) || res.statusText;
-    // GitHub's own wording is often more specific than ours, so always append it.
     const detail = msg ? ` (GitHub: ${msg})` : "";
     if (res.status === 401) return "401 — token rejected. It may be expired or mistyped." + detail;
     if (res.status === 403) return "403 — token lacks permission. Set Contents to 'Read and write' on this repo, not 'Read-only'." + detail;
     if (res.status === 404) return "404 — repo, branch or path not found. Check owner/repo, and that the token grants access to this repository." + detail;
     if (res.status === 409) return "409 — the file changed on GitHub since you loaded it. Reload and reapply your edits." + detail;
     return res.status + " — " + msg;
+  }
+
+  // Accepts the current {recipients:[...]} shape and the old flat query array.
+  function adopt(parsed) {
+    const list = Array.isArray(parsed) ? [{ name: "default",
+                                            chat_id_env: "TELEGRAM_CHAT_ID",
+                                            queries: parsed }]
+                                       : (parsed && parsed.recipients) || [];
+    return list.map((r, i) => ({
+      name: typeof r.name === "string" && r.name ? r.name : `Person ${i + 1}`,
+      chat_id_env: typeof r.chat_id_env === "string" ? r.chat_id_env : "",
+      queries: (Array.isArray(r.queries) ? r.queries : []).map((q) => ({
+        keywords: typeof q.keywords === "string" ? q.keywords : "",
+        location: typeof q.location === "string" ? q.location : "",
+        exclude: Array.isArray(q.exclude) ? q.exclude.filter((w) => typeof w === "string") : [],
+      })),
+    }));
   }
 
   async function load() {
@@ -300,11 +333,9 @@
       const res = await ghFetch(url, { cache: "no-store" });
 
       if (res.status === 404) {
-        // queries.json not in the repo yet — start from an empty list.
         sha = null; existed = false; model = [];
-        render();
-        els.editor.hidden = false;
-        setStatus("No queries.json in the repo yet — add queries and commit to create it.", "");
+        render(); els.editor.hidden = false;
+        setStatus(`No ${PATH} in the repo yet — add a person and commit to create it.`, "");
         return;
       }
       const body = await res.json().catch(() => null);
@@ -314,28 +345,16 @@
       try {
         parsed = JSON.parse(fromBase64(body.content));
       } catch (e) {
-        setStatus("queries.json in the repo is not valid JSON (" + e.message +
-                  "). Fix it here and commit to overwrite it.", "bad");
-        sha = body.sha; existed = true; model = []; render();
-        els.editor.hidden = false;
-        return;
-      }
-      if (!Array.isArray(parsed)) {
-        setStatus("queries.json must contain a JSON array. Rebuild it here and commit.", "bad");
-        sha = body.sha; existed = true; model = []; render();
-        els.editor.hidden = false;
+        sha = body.sha; existed = true; model = []; render(); els.editor.hidden = false;
+        setStatus(`${PATH} in the repo is not valid JSON (${e.message}). Rebuild it here and commit to overwrite.`, "bad");
         return;
       }
 
       sha = body.sha; existed = true;
-      model = parsed.map((q) => ({
-        keywords: typeof q.keywords === "string" ? q.keywords : "",
-        location: typeof q.location === "string" ? q.location : "",
-        exclude: Array.isArray(q.exclude) ? q.exclude.filter((w) => typeof w === "string") : [],
-      }));
-      render();
-      els.editor.hidden = false;
-      setStatus(`Loaded ${model.length} quer${model.length === 1 ? "y" : "ies"}.`, "ok");
+      model = adopt(parsed);
+      render(); els.editor.hidden = false;
+      const nq = model.reduce((n, r) => n + r.queries.length, 0);
+      setStatus(`Loaded ${model.length} person(s), ${nq} quer${nq === 1 ? "y" : "ies"}.`, "ok");
     } catch (e) {
       setStatus(e.message, "bad");
     } finally {
@@ -345,20 +364,15 @@
 
   async function save() {
     const problems = validate();
-    if (problems.length) {
-      setStatus(problems[0], "bad");
-      render();
-      return;
-    }
+    if (problems.length) { setStatus(problems[0], "bad"); render(); return; }
     busy(true);
     setStatus("Committing…", "busy");
     try {
       const c = ctx();
       saveConfig();
-      // Trailing newline keeps the file POSIX-clean and diffs tidy.
       const content = JSON.stringify(serialize(), null, 2) + "\n";
       const payload = {
-        message: existed ? "Update job queries" : "Add job queries",
+        message: existed ? "Update scraper config" : "Add scraper config",
         content: toBase64(content),
         branch: c.branch,
       };
@@ -373,10 +387,10 @@
       const body = await res.json().catch(() => null);
       if (!res.ok) { setStatus(explain(res, body), "bad"); return; }
 
-      sha = body.content && body.content.sha;   // adopt the new sha so you can commit again
+      sha = body.content && body.content.sha;
       existed = true;
       const short = body.commit && body.commit.sha ? body.commit.sha.slice(0, 7) : "";
-      setStatus(`Committed ${short}. The next scheduled run will use these queries.`, "ok");
+      setStatus(`Committed ${short}. The next scheduled run will use this config.`, "ok");
     } catch (e) {
       setStatus(e.message, "bad");
     } finally {
@@ -384,78 +398,52 @@
     }
   }
 
-  // --- model <-> form --------------------------------------------------------
+  // --- model <-> form ------------------------------------------------------
   function serialize() {
-    return model.map((q) => {
-      const out = { keywords: q.keywords.trim() };
-      if (q.location.trim()) out.location = q.location.trim();
-      const ex = q.exclude.map((w) => w.trim()).filter(Boolean);
-      if (ex.length) out.exclude = ex;
-      return out;
-    });
+    return {
+      recipients: model.map((r) => ({
+        name: r.name.trim(),
+        chat_id_env: r.chat_id_env.trim(),
+        queries: r.queries.map((q) => {
+          const out = { keywords: q.keywords.trim() };
+          if (q.location.trim()) out.location = q.location.trim();
+          const ex = q.exclude.map((w) => w.trim()).filter(Boolean);
+          if (ex.length) out.exclude = ex;
+          return out;
+        }),
+      })),
+    };
   }
 
   function validate() {
     const problems = [];
-    if (!model.length) problems.push("Add at least one query — an empty file makes the scraper exit.");
-    model.forEach((q, i) => {
-      if (!q.keywords.trim()) problems.push(`Query ${i + 1}: keywords cannot be empty.`);
+    if (!model.length) problems.push("Add at least one person.");
+    const usedEnv = new Map();
+    model.forEach((r, i) => {
+      const who = r.name.trim() || `Person ${i + 1}`;
+      const env = r.chat_id_env.trim();
+      if (!env) {
+        problems.push(`${who}: pick a chat ID secret.`);
+      } else if (!ENV_RE.test(env)) {
+        problems.push(`${who}: "${env}" is not a valid secret name (A–Z, 0–9 and _ only, starting with a letter).`);
+      } else if (usedEnv.has(env)) {
+        problems.push(`${who} and ${usedEnv.get(env)} both use ${env}; give each person their own secret.`);
+      } else {
+        usedEnv.set(env, who);
+      }
+      if (!r.queries.length) problems.push(`${who}: add at least one query, or remove the person.`);
+      r.queries.forEach((q, j) => {
+        if (!q.keywords.trim()) problems.push(`${who}, query ${j + 1}: keywords cannot be empty.`);
+      });
     });
     return problems;
   }
 
-  function render() {
-    els.queries.innerHTML = "";
-    model.forEach((q, i) => {
-      const card = document.createElement("div");
-      card.className = "query" + (q.keywords.trim() ? "" : " invalid");
-
-      const head = document.createElement("div");
-      head.className = "query-head";
-      const num = document.createElement("span");
-      num.className = "query-num";
-      num.textContent = "Query " + (i + 1);
-      const del = document.createElement("button");
-      del.className = "link";
-      del.textContent = "Remove";
-      del.onclick = () => { model.splice(i, 1); render(); };
-      head.append(num, del);
-      card.append(head);
-
-      const row = document.createElement("div");
-      row.className = "row";
-      row.append(
-        field("Keywords", q.keywords, "flutter developer", (v) => { q.keywords = v; touch(card, q); }),
-        field("Location", q.location, "Budapest", (v) => { q.location = v; touch(card, q); }),
-      );
-      card.append(row);
-
-      card.append(field(
-        "Exclude titles containing (comma separated)",
-        q.exclude.join(", "), "lead, intern",
-        (v) => {
-          q.exclude = v.split(",").map((s) => s.trim()).filter(Boolean);
-          touch(card, q);
-        },
-      ));
-
-      if (!q.keywords.trim()) {
-        const err = document.createElement("div");
-        err.className = "err";
-        err.textContent = "Keywords are required.";
-        card.append(err);
-      }
-      els.queries.append(card);
-    });
+  function refresh() {
     els.preview.textContent = JSON.stringify(serialize(), null, 2) + "\n";
   }
 
-  function touch(card, q) {
-    card.classList.toggle("invalid", !q.keywords.trim());
-    els.preview.textContent = JSON.stringify(serialize(), null, 2) + "\n";
-  }
-
-  function field(labelText, value, placeholder, onInput) {
+  function field(labelText, value, placeholder, onInput, opts) {
     const wrap = document.createElement("div");
     wrap.className = "field";
     const id = "f" + Math.random().toString(36).slice(2, 9);
@@ -468,17 +456,121 @@
     input.value = value;
     input.placeholder = placeholder;
     input.spellcheck = false;
+    if (opts && opts.list) input.setAttribute("list", opts.list);
     input.addEventListener("input", () => onInput(input.value));
     wrap.append(label, input);
+    if (opts && opts.hint) {
+      const h = document.createElement("p");
+      h.className = "hint";
+      h.innerHTML = opts.hint;
+      wrap.append(h);
+    }
     return wrap;
   }
 
-  // --- wiring ---------------------------------------------------------------
+  function renderQuery(person, q, j) {
+    const card = document.createElement("div");
+    card.className = "query" + (q.keywords.trim() ? "" : " invalid");
+
+    const head = document.createElement("div");
+    head.className = "query-head";
+    const num = document.createElement("span");
+    num.className = "query-num";
+    num.textContent = "Query " + (j + 1);
+    const del = document.createElement("button");
+    del.className = "link";
+    del.textContent = "Remove";
+    del.onclick = () => { person.queries.splice(j, 1); render(); };
+    head.append(num, del);
+    card.append(head);
+
+    const row = document.createElement("div");
+    row.className = "row";
+    row.append(
+      field("Keywords", q.keywords, "flutter developer", (v) => {
+        q.keywords = v;
+        card.classList.toggle("invalid", !v.trim());
+        refresh();
+      }),
+      field("Location", q.location, "Budapest", (v) => { q.location = v; refresh(); }),
+    );
+    card.append(row);
+    card.append(field("Exclude titles containing (comma separated)",
+      q.exclude.join(", "), "lead, intern",
+      (v) => { q.exclude = v.split(",").map((s) => s.trim()).filter(Boolean); refresh(); }));
+
+    if (!q.keywords.trim()) {
+      const err = document.createElement("div");
+      err.className = "err";
+      err.textContent = "Keywords are required.";
+      card.append(err);
+    }
+    return card;
+  }
+
+  function render() {
+    els.people.innerHTML = "";
+    model.forEach((person, i) => {
+      const box = document.createElement("div");
+      box.className = "person";
+
+      const head = document.createElement("div");
+      head.className = "person-head";
+      const title = document.createElement("span");
+      title.className = "person-name";
+      title.textContent = person.name.trim() || `Person ${i + 1}`;
+      const del = document.createElement("button");
+      del.className = "link";
+      del.textContent = "Remove person";
+      del.onclick = () => { model.splice(i, 1); render(); };
+      head.append(title, del);
+      box.append(head);
+
+      const row = document.createElement("div");
+      row.className = "row";
+      row.append(
+        field("Name", person.name, "Nora", (v) => {
+          person.name = v;
+          title.textContent = v.trim() || `Person ${i + 1}`;
+          refresh();
+        }),
+        field("Chat ID secret", person.chat_id_env, "TELEGRAM_CHAT_ID_2",
+          (v) => { person.chat_id_env = v; refresh(); },
+          { list: "slots",
+            hint: "The <em>name</em> of the repo secret holding this chat ID &mdash; never the ID itself. " +
+                  "Pick a listed slot, then add that secret under Settings &rarr; Secrets and variables &rarr; Actions." }),
+      );
+      box.append(row);
+
+      if (!person.queries.length) {
+        const e = document.createElement("p");
+        e.className = "empty";
+        e.textContent = "No queries yet.";
+        box.append(e);
+      }
+      person.queries.forEach((q, j) => box.append(renderQuery(person, q, j)));
+
+      const add = document.createElement("button");
+      add.className = "small";
+      add.textContent = "+ Add query";
+      add.onclick = () => {
+        person.queries.push({ keywords: "", location: "", exclude: [] });
+        render();
+      };
+      box.append(add);
+      els.people.append(box);
+    });
+    refresh();
+  }
+
+  // --- wiring -------------------------------------------------------------
   els.load.onclick = load;
   els.reload.onclick = load;
   els.save.onclick = save;
-  els.add.onclick = () => {
-    model.push({ keywords: "", location: "", exclude: [] });
+  els.addPerson.onclick = () => {
+    const used = new Set(model.map((r) => r.chat_id_env.trim()));
+    const slot = KNOWN_SLOTS.find((s) => !used.has(s)) || "";
+    model.push({ name: "", chat_id_env: slot, queries: [{ keywords: "", location: "", exclude: [] }] });
     render();
   };
   els.forget.onclick = () => {
