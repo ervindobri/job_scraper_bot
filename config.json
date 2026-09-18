@@ -59,6 +59,16 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Ana Paula",
+      "chat_id_env": "TELEGRAM_CHAT_ID_2",
+      "queries": [
+        {
+          "keywords": "service desk manager",
+          "location": "Europe"
+        }
+      ]
     }
   ]
 }
