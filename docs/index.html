@@ -330,6 +330,7 @@
         keywords: typeof q.keywords === "string" ? q.keywords : "",
         location: typeof q.location === "string" ? q.location : "",
         exclude: Array.isArray(q.exclude) ? q.exclude.filter((w) => typeof w === "string") : [],
+        min_score: q.min_score === undefined || q.min_score === null ? "" : String(q.min_score),
       })),
     }));
   }
@@ -421,6 +422,8 @@
           if (q.location.trim()) out.location = q.location.trim();
           const ex = q.exclude.map((w) => w.trim()).filter(Boolean);
           if (ex.length) out.exclude = ex;
+          const ms = (q.min_score || "").trim();
+          if (ms !== "") out.min_score = Number(ms);
           return out;
         }),
       })),
@@ -446,6 +449,10 @@
       if (!r.queries.length) problems.push(`${who}: add at least one query, or remove the person.`);
       r.queries.forEach((q, j) => {
         if (!q.keywords.trim()) problems.push(`${who}, query ${j + 1}: keywords cannot be empty.`);
+        const ms = (q.min_score || "").trim();
+        if (ms !== "" && !(Number(ms) >= 0 && Number(ms) <= 1)) {
+          problems.push(`${who}, query ${j + 1}: min relevance must be a number between 0 and 1.`);
+        }
       });
     });
     return problems;
@@ -520,9 +527,19 @@
     geoNote.hidden = !q.location.trim() || GEO_LOCATIONS.has(q.location.trim().toLowerCase());
     card.append(geoNote);
 
-    card.append(field("Exclude titles containing (comma separated)",
-      q.exclude.join(", "), "lead, intern",
-      (v) => { q.exclude = v.split(",").map((s) => s.trim()).filter(Boolean); refresh(); }));
+    const row2 = document.createElement("div");
+    row2.className = "row";
+    row2.append(
+      field("Exclude titles containing (comma separated)",
+        q.exclude.join(", "), "lead, intern",
+        (v) => { q.exclude = v.split(",").map((s) => s.trim()).filter(Boolean); refresh(); }),
+      field("Min relevance", q.min_score, "0.66",
+        (v) => { q.min_score = v; refresh(); },
+        { hint: "0&ndash;1. Blank uses the default 0.66. Higher is stricter: LinkedIn " +
+                "returns loosely related jobs and this drops the ones whose title does " +
+                "not match the keywords." }),
+    );
+    card.append(row2);
 
     if (!q.keywords.trim()) {
       const err = document.createElement("div");
@@ -579,7 +596,7 @@
       add.className = "small";
       add.textContent = "+ Add query";
       add.onclick = () => {
-        person.queries.push({ keywords: "", location: "", exclude: [] });
+        person.queries.push({ keywords: "", location: "", exclude: [], min_score: "" });
         render();
       };
       box.append(add);
@@ -595,7 +612,8 @@
   els.addPerson.onclick = () => {
     const used = new Set(model.map((r) => r.chat_id_env.trim()));
     const slot = KNOWN_SLOTS.find((s) => !used.has(s)) || "";
-    model.push({ name: "", chat_id_env: slot, queries: [{ keywords: "", location: "", exclude: [] }] });
+    model.push({ name: "", chat_id_env: slot,
+                 queries: [{ keywords: "", location: "", exclude: [], min_score: "" }] });
     render();
   };
   els.forget.onclick = () => {

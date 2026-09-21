@@ -36,6 +36,42 @@ Each query takes:
 | `keywords` | yes | search terms, e.g. `flutter developer` |
 | `location` | no | geographic filter, e.g. `Budapest`, `Spain`, `Europe` |
 | `exclude` | no | skip postings whose **title** contains any of these words |
+| `min_score` | no | relevance floor 0–1, default `0.66` (see below) |
+
+### Relevance filtering
+
+LinkedIn's keyword matching is loose — it expands semantically across the whole posting, not just
+the title. Measured on a real run, `flutter developer` in Hungary returned **18 results, none of
+which contained "flutter"**: Angular, Vue.js, React, and a "Fluent OMS Developer" that matched on
+*Flu*. So titles are scored after scraping and the noise is dropped.
+
+`relevance(title, keywords)` is the weighted share of the query's terms present in the title:
+
+- Terms are lowercased and split on punctuation, so `Flutter/React Developer` matches.
+- Synonyms collapse to one form: developer = engineer = dev = programmer, plus the local-language
+  titles LinkedIn returns (`fejlesztő`, `desarrollador`, `ontwikkelaar`, `développeur`, …).
+- Generic words that appear in nearly every posting (`senior`, `mobile`, `software`, `app`,
+  `remote`, `full stack`, …) carry a quarter weight. Distinctive terms like `flutter` carry full
+  weight, which is what makes `Flutter Developer` rank far above `Mobile Developer` for a Flutter
+  search.
+
+Examples against `flutter developer`:
+
+| title | score | at 0.66 |
+| --- | --- | --- |
+| `Flutter Software Engineer` | 1.00 | keep |
+| `Desarrollador/a Flutter (freelance)` | 1.00 | keep |
+| `Senior Delphi Developer` | 0.20 | drop |
+| `Fluent OMS Developer` | 0.20 | drop |
+| `Szoftverfejlesztő (Angular)` | 0.00 | drop |
+
+Measured on 176 real postings, `0.66` kept 43 with **zero** false positives or negatives on the
+Flutter queries — every kept title contained "flutter", every dropped one did not. Raise
+`min_score` per query to tighten, lower it to loosen. Filtered jobs are deliberately *not* recorded
+as seen, so lowering the threshold later lets them through on the next run.
+
+Scoring uses the **title only**. The guest search endpoint returns no description, and fetching one
+per posting would mean ~100 extra requests per query and near-certain rate limiting.
 
 ### How `location` is applied
 

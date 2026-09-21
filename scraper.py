@@ -1,6 +1,7 @@
 import html
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -28,6 +29,31 @@ PAGE_RETRIES = 3
 SEEN_TTL_DAYS = 14
 MAX_MESSAGE_CHARS = 4096  # Telegram hard limit
 CHUNK_BUDGET = 3500  # per message, leaving room for the header
+MIN_SCORE = 0.66  # default relevance floor; per-query "min_score" overrides it
+
+# LinkedIn matches keywords loosely against the whole posting, so a search for
+# "flutter developer" returns Angular, Vue and even "Fluent OMS Developer". Titles
+# are scored against the query afterwards and the noise is dropped.
+SYNONYMS = {
+    "developer": "dev", "engineer": "dev", "dev": "dev", "programmer": "dev",
+    "development": "dev", "engineering": "dev",
+    # the local-language titles LinkedIn returns for European searches
+    "fejlesztő": "dev", "szoftverfejlesztő": "dev", "desarrollador": "dev",
+    "desarrolladora": "dev", "ontwikkelaar": "dev", "entwickler": "dev",
+    "développeur": "dev", "sviluppatore": "dev", "utvecklare": "dev",
+    "sr": "senior", "snr": "senior", "jr": "junior",
+}
+# Words shared by almost every software posting, so matching one proves little.
+# Distinctive terms (flutter, kotlin, swift, ...) keep full weight, which is what
+# makes "Flutter Developer" rank above "Mobile Developer" for a Flutter search.
+GENERIC_TOKENS = {
+    "dev", "software", "senior", "junior", "mid", "medior", "lead", "staff",
+    "principal", "mobile", "remote", "hybrid", "onsite", "app", "application",
+    "applications", "fullstack", "full", "stack", "frontend", "backend", "front",
+    "back", "end", "web", "cloud", "system", "systems", "tech", "technology",
+    "it", "specialist", "consultant", "expert", "professional",
+}
+GENERIC_WEIGHT = 0.25
 
 # LinkedIn's own location ids. geoId OVERRIDES the location string when both are
 # sent, so an unmapped location must send no geoId at all or it would silently
@@ -168,6 +194,33 @@ def fetch_jobs(query, cache=None):
     return jobs
 
 
+def tokenize(text):
+    return [t for t in re.split(r"[^0-9a-zà-öø-ÿ]+", (text or "").lower()) if t]
+
+
+def canonical(token):
+    return SYNONYMS.get(token, token)
+
+
+def relevance(title, keywords):
+    """Weighted share of the query's terms present in the title, 0..1.
+
+    Generic role words count for little, so a Flutter search keeps "Flutter
+    Software Engineer" (1.0) and drops "Senior Mobile Developer" (0.2).
+    """
+    want = [canonical(t) for t in tokenize(keywords)]
+    if not want:
+        return 1.0
+    have = {canonical(t) for t in tokenize(title)}
+    total = matched = 0.0
+    for token in dict.fromkeys(want):  # unique, order preserved
+        weight = GENERIC_WEIGHT if token in GENERIC_TOKENS else 1.0
+        total += weight
+        if token in have:
+            matched += weight
+    return matched / total if total else 1.0
+
+
 def matches_excludes(job, query):
     title = job["title"].lower()
     return any(word.lower() in title for word in query.get("exclude", []))
@@ -251,8 +304,13 @@ def send_message(text, chat_id, attempts=3):
 
 
 def new_jobs_for(query, jobs, seen, now):
-    """Filter a query's postings down to unseen, non-excluded ones."""
+    """Filter a query's postings down to unseen, non-excluded, relevant ones."""
+    try:
+        min_score = float(query.get("min_score", MIN_SCORE))
+    except (TypeError, ValueError):
+        min_score = MIN_SCORE
     fresh, batch_ids = [], set()
+    dropped = []
     for job in jobs:
         if job["id"] in seen or job["id"] in batch_ids:
             continue
@@ -260,7 +318,18 @@ def new_jobs_for(query, jobs, seen, now):
         if matches_excludes(job, query):
             seen[job["id"]] = now  # remember exclusions so we stop re-checking them
             continue
+        score = relevance(job["title"], query["keywords"])
+        if score < min_score:
+            # Deliberately NOT marked seen: lowering min_score later lets these
+            # through, and re-scoring costs nothing since no request is made.
+            dropped.append((score, job["title"]))
+            continue
+        job["score"] = round(score, 2)
         fresh.append(job)
+    if dropped:
+        best = max(s for s, _ in dropped)
+        print(f"    dropped {len(dropped)} below relevance {min_score:g} "
+              f"(closest {best:.2f}: {max(dropped)[1][:60]!r})")
     return fresh
 
 
