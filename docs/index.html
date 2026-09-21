@@ -323,14 +323,23 @@
                                             chat_id_env: "TELEGRAM_CHAT_ID",
                                             queries: parsed }]
                                        : (parsed && parsed.recipients) || [];
+    // Keys this form does not model are carried through untouched, so a commit
+    // from here never silently drops config the scraper understands.
+    const QUERY_KEYS = ["keywords", "location", "exclude", "min_score"];
+    const PERSON_KEYS = ["name", "chat_id_env", "queries"];
+    const rest = (obj, known) => Object.fromEntries(
+      Object.entries(obj || {}).filter(([k]) => !known.includes(k)));
+
     return list.map((r, i) => ({
       name: typeof r.name === "string" && r.name ? r.name : `Person ${i + 1}`,
       chat_id_env: typeof r.chat_id_env === "string" ? r.chat_id_env : "",
+      _rest: rest(r, PERSON_KEYS),
       queries: (Array.isArray(r.queries) ? r.queries : []).map((q) => ({
         keywords: typeof q.keywords === "string" ? q.keywords : "",
         location: typeof q.location === "string" ? q.location : "",
         exclude: Array.isArray(q.exclude) ? q.exclude.filter((w) => typeof w === "string") : [],
         min_score: q.min_score === undefined || q.min_score === null ? "" : String(q.min_score),
+        _rest: rest(q, QUERY_KEYS),
       })),
     }));
   }
@@ -414,7 +423,7 @@
   // --- model <-> form ------------------------------------------------------
   function serialize() {
     return {
-      recipients: model.map((r) => ({
+      recipients: model.map((r) => Object.assign({
         name: r.name.trim(),
         chat_id_env: r.chat_id_env.trim(),
         queries: r.queries.map((q) => {
@@ -424,9 +433,9 @@
           if (ex.length) out.exclude = ex;
           const ms = (q.min_score || "").trim();
           if (ms !== "") out.min_score = Number(ms);
-          return out;
+          return Object.assign(out, q._rest || {});
         }),
-      })),
+      }, r._rest || {})),
     };
   }
 
@@ -596,7 +605,7 @@
       add.className = "small";
       add.textContent = "+ Add query";
       add.onclick = () => {
-        person.queries.push({ keywords: "", location: "", exclude: [], min_score: "" });
+        person.queries.push({ keywords: "", location: "", exclude: [], min_score: "", _rest: {} });
         render();
       };
       box.append(add);
@@ -612,8 +621,8 @@
   els.addPerson.onclick = () => {
     const used = new Set(model.map((r) => r.chat_id_env.trim()));
     const slot = KNOWN_SLOTS.find((s) => !used.has(s)) || "";
-    model.push({ name: "", chat_id_env: slot,
-                 queries: [{ keywords: "", location: "", exclude: [], min_score: "" }] });
+    model.push({ name: "", chat_id_env: slot, _rest: {},
+                 queries: [{ keywords: "", location: "", exclude: [], min_score: "", _rest: {} }] });
     render();
   };
   els.forget.onclick = () => {

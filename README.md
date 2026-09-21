@@ -36,7 +36,8 @@ Each query takes:
 | `keywords` | yes | search terms, e.g. `flutter developer` |
 | `location` | no | geographic filter, e.g. `Budapest`, `Spain`, `Europe` |
 | `exclude` | no | skip postings whose **title** contains any of these words |
-| `min_score` | no | relevance floor 0–1, default `0.66` (see below) |
+| `min_score` | no | title relevance floor 0–1, default `0.66` (see below) |
+| `min_desc_mentions` | no | times a distinctive term must appear in the body, default `2` |
 
 ### Relevance filtering
 
@@ -44,6 +45,8 @@ LinkedIn's keyword matching is loose — it expands semantically across the whol
 the title. Measured on a real run, `flutter developer` in Hungary returned **18 results, none of
 which contained "flutter"**: Angular, Vue.js, React, and a "Fluent OMS Developer" that matched on
 *Flu*. So titles are scored after scraping and the noise is dropped.
+
+#### Stage 1: the title
 
 `relevance(title, keywords)` is the weighted share of the query's terms present in the title:
 
@@ -70,8 +73,37 @@ Flutter queries — every kept title contained "flutter", every dropped one did 
 `min_score` per query to tighten, lower it to loosen. Filtered jobs are deliberately *not* recorded
 as seen, so lowering the threshold later lets them through on the next run.
 
-Scoring uses the **title only**. The guest search endpoint returns no description, and fetching one
-per posting would mean ~100 extra requests per query and near-certain rate limiting.
+#### Stage 2: the posting body
+
+Titles alone lose real matches. A posting titled *Senior Mobile Engineer* whose body says "Design
+and build sophisticated apps using Flutter … 5 years Mobile Development Experience Flutter" is a
+Flutter job, but scores 0.20 on its title.
+
+So postings the title rejects get a second look: the body is fetched from
+`jobs-guest/jobs/api/jobPosting/<id>` (~0.75s each) and kept if **every distinctive query term
+appears at least `min_desc_mentions` times**, default 2.
+
+Coverage scoring is deliberately *not* used on the body. Almost any 3000-character description
+contains "developer", "senior" and "software" somewhere, so coverage would pass nearly everything.
+Only distinctive terms carry signal there — a query like `senior mobile developer` has none, so it
+skips this stage entirely and the title decides.
+
+The mention count is what separates a real match from a passing reference. Measured:
+
+| body says | mentions | verdict |
+| --- | --- | --- |
+| "build sophisticated apps using Flutter … 5 years experience Flutter" | 4 | keep |
+| "frameworks such as React Native or Flutter" | 1 | drop |
+| "you are experienced with Vue.js … you're open to Flutter" | 1 | drop |
+
+Cost is bounded by `DESC_BUDGET_PER_QUERY` (15) and `DESC_BUDGET` (120 per run), spent
+best-first so a hopeless query cannot starve the rest. Mostly paid on the first catch-up run: a
+body that was fetched and rejected is marked seen, so later runs only pay for genuinely new
+postings. A body that could not be fetched (429) is **not** marked seen and is retried later.
+
+Measured over 196 postings, stage 2 recovered 12 real matches that the title filter had dropped,
+including `Mobile Developer`, `Desenvolvedor de aplicativos móveis` and two helpdesk-manager roles.
+Recovered jobs are labelled "matched in description" in the Telegram message.
 
 ### How `location` is applied
 
