@@ -66,7 +66,59 @@
       "queries": [
         {
           "keywords": "service desk manager",
-          "location": "Europe"
+          "location": "Brazil"
+        },
+        {
+          "keywords": "Service request coordinator",
+          "location": "Brazil"
+        },
+        {
+          "keywords": "Customer service representative",
+          "location": "Brazil"
+        },
+        {
+          "keywords": "Customer support",
+          "location": "Brazil"
+        },
+        {
+          "keywords": "Document reviewer",
+          "location": "Brazil"
+        },
+        {
+          "keywords": "Legal case manager",
+          "location": "Brazil"
+        },
+        {
+          "keywords": "Paralegal",
+          "location": "Brazil"
+        },
+        {
+          "keywords": "Legal Assistant",
+          "location": "Brazil"
+        },
+        {
+          "keywords": "Remote dispatcher",
+          "location": "Brazil"
+        },
+        {
+          "keywords": "Operations coordinator",
+          "location": "Brazil"
+        },
+        {
+          "keywords": "Service desk analyst",
+          "location": "Brazil"
+        },
+        {
+          "keywords": "Incident manager",
+          "location": "Brazil"
+        },
+        {
+          "keywords": "Queue manager",
+          "location": "Brazil"
+        },
+        {
+          "keywords": "Jeopardy manager",
+          "location": "Brazil"
         }
       ]
     }
